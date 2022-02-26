@@ -78,7 +78,7 @@ Internet Computer最初使用***Canister Paste***模型。在这个模型中，C
 
 ### 入口消息验证检查(Ingress Message Validation Checks)
 
-<figure class="wp-block-image size-large"><img src="3.1" alt="IMG_3939" class="wp-image-962"><figcaption>Picture 3.1</figcaption></figure>
+<figure class="wp-block-image size-large"><img src="src/Ingress Message Lifecycle|Inside the Internet Computer/3.1.PNG" alt="IMG_3939" class="wp-image-962"><figcaption>Picture 3.1</figcaption></figure>
 
 update调用请求被提交到的第一部分是***HTTP Handler***，这也是第一个我们可以进行一些检查的地方。如果通过了它的检查，消息将会被添加到***Artifact Pool***并且通过P2P协议进行传播。当接收到来自另一个节点的入口消息时（当它不是直接来自用户时），入口管理(***Ingress Manager***)会在将消息添加到***Artifact Pool***执勤执行一组检查。因为发送消息的节点可能是恶意的(*Malicious*)。当消息被添加到***Artifact Pool***之后，它将会被传播到其他节点。当区块创建者(***Block Maker***)创建一个新的区块提案(***Block Proposal***)时，入口消息管理选择一组适合新提案的入口消息，然后进行广播。在接收到一个提案时，节点会在对消息进行公证之前运行另一组检查。当区块已经最终确定(*Finalized*)并且它的消息被传递到消息路由组件(***Message Routing Component***)时，它们需要在被插入到***Induction Pool***之前通过有效集规则(***The Valid Set Rule***)。重要的是，最后的一组检查将会在消息被执行(*Executed*)之前进行。
 
