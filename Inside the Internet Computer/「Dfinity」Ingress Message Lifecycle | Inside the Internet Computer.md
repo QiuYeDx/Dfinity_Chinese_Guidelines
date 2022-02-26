@@ -8,7 +8,7 @@
 
 本文将讲述Internet Computer的消息生命周期(***Ingress Message Lifecycle***)。
 
-阅读完本文，您将了解Internet Computer如何处理`update`方法调用，（从它到达一个节点直到它被执行的全过程）。我们将尤其讨论必须满足的条件以及我们如何确保对相关方的处理收费。
+阅读完本文，您将了解Internet Computer如何处理update方法调用，（从它到达一个节点直到它被执行的全过程）。我们将尤其讨论必须满足的条件以及我们如何确保对相关方的处理收费。
 
 ## 正文
 
@@ -40,7 +40,7 @@ query调用可以由参与托管目标容器的子网的任何节点应答，且
 
 <figure class="wp-block-image size-large"><img src="https://qiuyedx.com/wp-content/uploads/2022/01/IMG_3929-1024x573.png" alt="IMG_3929" class="wp-image-952"><figcaption>Picture 1.3</figcaption></figure>
 
-### 入口消息(*Ingress Message*)的字段(*Fields*)
+### 入口消息的字段(Ingress Message Fields)
 
 入口消息具有以下字段：
 
@@ -65,3 +65,51 @@ query调用可以由参与托管目标容器的子网的任何节点应答，且
 Internet Computer最初使用***Canister Paste***模型。在这个模型中，Canister对所有IC所需要的资源进行“买账”来使Canister持续运作，存储、计算、网络资源等一切花费在运行Internet Computer协议上的资源都被考虑在内。由于Canister要为处理不受Canister影响的入口消息所消耗的资源进行“买账”，Internet Computer为Canister提供了限制入口消息花费的机制。
 
 <figure class="wp-block-image size-large"><img src="https://qiuyedx.com/wp-content/uploads/2022/01/IMG_3932-1024x573.png" alt="IMG_3932" class="wp-image-955"><figcaption>Picture 2.2</figcaption></figure>
+
+在基础版本的机制中，Canister可以公开一种方法(***Method***)来检查入口消息及其字段并作出决定，看看此消息应被进一步处理还是立即被拒绝。为了作出此决定，可以考虑Canister的状态或元数据(***Metadata***)。例如，一个Canister可以仅当自身的Cycles余额大于某个值时才接受该消息；或者它可以检查消息的发送者是否是授权列表的成员。注意，执行这个用来确定是否应保留入口消息的方法基本上是一个query调用。换句话说，容器状态不会被它改变。
+
+为了确保消息可以被执行以及有人可以成功为之“买账”，在消息执行前，必须满足以下所有条件。（如Picture 2.3）请注意，这实际上是在我们**执行**消息之前，而不是我们在子网中发送消息之前。
+
+<figure class="wp-block-image size-large"><img src="https://qiuyedx.com/wp-content/uploads/2022/01/IMG_3935-1024x573.png" alt="IMG_3935" class="wp-image-958"><figcaption>Picture 2.3</figcaption></figure>
+
+首先，格式必须正确，所有必要的字段必须存在，它们必须是正确的类型；请求ID必须是正确的，消息大小必须在**Registry中明确的限制大小**以内。然后我们需要确保消息在被导入(***Inducted***)时没有超时，并且我们需要确保它花费的时间小于***Induction Pool***中给定的时间常量。我们不希望入口消息被意外地执行两次。所以如果我们有一条入口消息，这个入口消息的请求ID和已经被导入到***Induction Pool***中的某个请求的请求ID相同，那么这条后来的消息则不会进入***Induction Pool***。其他检查包括WASM检查等。例如，Canister真的具有入口消息想要调用的方法，并且参数格式是正确的。这里可能包含一些对特定方法的更严格的大小检查。`canister_inspect_message()`方法是非公开的，当随着消息被调用时会返回accept。为了消息能够执行，它的目标Canister必须有足够的Cycles余额，并且必须有足够的导入和执行能力(*Induction and Execution Capacity*)。最后，请求ID上的签名必须被签证。
+
+现在，我们知道了执行消息必须满足的所有条件，那么让我们跟随一条入口消息经历一遍它从开始到最终被执行的整个过程，看一看在不同位置所进行的不同的必要检查吧。
+
+### 入口消息验证检查(Ingress Message Validation Checks)
+
+<figure class="wp-block-image size-large"><img src="https://qiuyedx.com/wp-content/uploads/2022/01/IMG_3939-1024x573.png" alt="IMG_3939" class="wp-image-962"><figcaption>Picture 3.1</figcaption></figure>
+
+update调用请求被提交到的第一部分是***HTTP Handler***，这也是第一个我们可以进行一些检查的地方。如果通过了它的检查，消息将会被添加到***Artifact Pool***并且通过P2P协议进行传播。当接收到来自另一个节点的入口消息时（当它不是直接来自用户时），入口管理(***Ingress Manager***)会在将消息添加到***Artifact Pool***执勤执行一组检查。因为发送消息的节点可能是恶意的(*Malicious*)。当消息被添加到***Artifact Pool***之后，它将会被传播到其他节点。当区块创建者(***Block Maker***)创建一个新的区块提案(***Block Proposal***)时，入口消息管理选择一组适合新提案的入口消息，然后进行广播。在接收到一个提案时，节点会在对消息进行公证之前运行另一组检查。当区块已经最终确定(*Finalized*)并且它的消息被传递到消息路由组件(***Message Routing Component***)时，它们需要在被插入到***Induction Pool***之前通过有效集规则(***The Valid Set Rule***)。重要的是，最后的一组检查将会在消息被执行(*Executed*)之前进行。
+
+<figure class="wp-block-image size-large"><img src="https://qiuyedx.com/wp-content/uploads/2022/01/IMG_3941-1024x573.png" alt="IMG_3941" class="wp-image-964"><figcaption>Picture 3.2</figcaption></figure>
+
+在我们深入了解每个检查的细节之前，我们要知道的是，消息的某些条件不可能在处理流程的早期就获得。当不得不决定入口消息是否应该被添加到***Artifact Pool***时，节点只能使用当前可用的信息，特别是节点此时无法知道消息将在哪个块中结束，并且目标Canister的状态将会被它们如何改变。例如可能发生的是，将包含消息的块之前的块中的消息正在更改容器状态，从而导致消息最终被拒绝。然而，在必须立即作出决定时，无论机制设计得有多复杂，节点都无法知道届时会发生什么。暂时不去理会其中的机制有多复杂，总是会有某些情况，在这些情况下，一个节点做出了错误的决定，或者拒绝了一条之后会被接受的消息，再或者将一条消息添加到它的池中，即使它以后无法被添加到区块中。因此，在**Gossip**之前会尽可能少地进行验证，并且将会仅丢弃那些从来不会进去区块的消息。注意，我们确保在进行选择和公证检查(*Selection and Notarization Checks*)之后，最终在区块中没有错误消息。
+
+<figure class="wp-block-image size-large"><img src="https://qiuyedx.com/wp-content/uploads/2022/01/IMG_3945-1024x573.png" alt="IMG_3945" class="wp-image-968"><figcaption>Picture 3.3</figcaption></figure>
+
+<figure class="wp-block-image size-large"><img src="https://qiuyedx.com/wp-content/uploads/2022/01/IMG_3946-1024x573.png" alt="IMG_3946" class="wp-image-969"><figcaption>Picture 3.4</figcaption></figure>
+
+一些检查独立于节点的当前状态，所以总是在早期运行这些检查，例如格式化和签名验证。一些其他检查确实取决于节点当前的状态，但它们是单调的(*Monotonic*)，即如果一条消息在某个时刻是无效的，那么它在未来将会一直保持无效的状态。对于这些检查，采用本地可用状态(*The Locally Available State*)是可以的。对于剩下的检查，在两个方向上都可能是错误的(*For the remaining checks it is possible to be wrong in both directions*.)。依据Picture 3.3中列出的原则，当接收到一条来自用户的消息时，我们将会采用本地可用状态，仅仅接受这样的事实：一些决定可能是错误的。如果收到一条来自对等方(***Peer***)消息，将**不会**根据本地可用状态重复这些检查。换句话说，该节点相信其他节点的决定，并且我们接受这样一个事实，即如果我们那样做（指重复检查），我们可能会浪费一些资源。
+
+我们现在将更详细地了解我们目前正在执行的检查集，在未来不久，我们可能会有更多的检查以加强这个平台。
+
+## 总结
+
+<figure class="wp-block-image size-large"><img src="https://qiuyedx.com/wp-content/uploads/2022/01/IMG_3951-1024x573.png" alt="IMG_3951" class="wp-image-974"><figcaption>Picture 4.1</figcaption></figure>
+
+C0：第一次检查是在HTTP Handler处执行。当收到用户请求时，它将会对请求格式进行初步检查。这些检查不需要其他组件重复，因为反序列化机制(***Deserialization Mechanism***)将会确保只有正确格式的消息才能传递到入口管理。此外，***HTTP Handler***处理关于目前可用的最新执行高度、时间和最新的可用***Registry***版本的检查。因此，我们检查目标Canister是否实际安装在子网上，我们检查方法和***Payload***是否正确，如果签名验证通过并且***Expiry***在不远的将来。最后我们还要确保消息不在入口历史记录(***Ingress History***)中且不在***Artifact Pool***中。如果检查方法返回"decline"，那么我们将丢弃这些消息，否则消息就通过所有这些检查，并且被添加到***Artifact Pool***，在子网中传播。
+
+C1：如果入口管理组件(***Ingress Manager Component***)从另一个节点收到一条消息，它将会检查该消息是否适合进一步广播。当且仅当入口消息满足以下所有条件时，它才会被发送给其他节点：我们再次检查签名，以避免在出块时以及检测其他错误时浪费时间。我们检查***Expiry***并确保消息尚未在***Artifact Pool***中或在***Inductive Payloads***。
+
+C2 = C3：当被出块组件(***Block Maker Component***)的共识所“敦促”(***Prompted***)时，入口管理(***Ingress Manager***)选择一组有效的入口消息作为区块有效负载(***Block Payloads***)的一部分。当被公证组件(*Notary Component* ***of Consensus***)触发时，这个组件也使来自对等者(***Peer***)的区块提案的入口负载(***Ingress Payload of Block Proposals***)生效。在这种情况下，提案的入口负载(***Ingress Payload of the Proposal***)和链拓展的区块需要被考虑。**出块和公证的有效条件是一样的。**这两者都查阅出存在区块中的执行高度和***Registry***版本。这些信息在所有节点上都可以用来**一致地**确认入口消息的有效性。例如，所有节点都可以依据区块中的时间确认Expiry在正确的范围内，无论本地挂钟时间(*The Local Wall Clock Time*)是多少。
+
+C4：当一批处理从共识的最终确认组件(***The Finalization Component of Consensus***)被传递到消息路由时，这批处理的负载中的入口消息被提交给有效集规则(***Valid Set Rule***)来进行容量和Cycles的检查，之后才能进入到***Induction Pool***中。其他检查不需要重复，由于对最终确认(***Finalization***)来说必要的、节点的阈值，它们被假定保持不变。已经导入，但长时间未被处理的消息会被丢弃。
+
+C5：当入口消息被消息路由中的消息调度程序(***Message Scheduler***)选择时，最后一次的Cycles检查将会在它们到达目标Canister之前被执行。
+
+我们可以看到，入口消息需要通过大量必要的检查。因此，能够为Canister支付计算、通信等消耗的Cycles是必要的。并且，同时可以阻止用户和恶意节点造成过多的资源浪费。
+
+感谢您的阅读！
+
+<figure class="wp-block-image size-large is-style-circle-mask"><img src="https://qiuyedx.com/wp-content/uploads/2022/01/IMG_3957-1024x573.png" alt="IMG_3957" class="wp-image-980"></figure>
