@@ -1,0 +1,356 @@
+# 「Motoko——Basic concepts and terms && Mutable state」
+
+### 1\.【从声明到块表达式】
+
+“声明列表（Declarations）”：
+
+```go
+let x = 1; 
+let y = x + 1; 
+x * y + x
+```
+
+这三行语句是一个声明列表。
+
+而一个声明列表自身不是一个表达式，所以我们不能用声明列表本身来作为声明另外一个值的初始化值。
+
+“块表达式（Block expressions）”:
+
+我们可以在声明列表的两端加上一对花括号来将其转换成块表达式。
+
+如：
+
+```go
+{
+    let x = 1; let y = x + 1; x * y + x  //注意语法细节 最后一条语句不加分号
+}
+```
+
+⚠️但块表达式只能用作控制流表达式的子式（like if, loop, case…）
+
+在其他地方我们可以用 `do{ … }` 来代表块表达式，以此与object literals进行区分。
+
+For example, do {} is the empty block of type (), while {} is an empty record of record type {}.
+
+应用举例：
+
+```go
+let z = do { 
+    let x = 1; 
+    let y = x + 1; 
+    x * y + x 
+};
+```
+
+### 2\.【忽略声明列表中的非单位类型（non-unit-typed）表达式】
+
+我们总是可以通过显式使用ignore忽略任何未使用的结果值来克服这种单元类型限制。例如：
+
+```go
+let x = 1; 
+ignore(x + 42); 
+let y = x + 1; 
+ignore(y * 42); 
+x * y + x;
+```
+
+即：若有“返回值”但不使用，则必须加上ignore，否则编译器会报错。
+
+### 3\.【使用Motoko基础库（base library）】
+
+To import from the base library, use the import keyword. Give a local module name to introduce, in this example D for “Debug”, and a URL where the import declaration may locate the imported module:
+
+```go
+import D "mo:base/Debug"; 
+D.print("hello world");
+```
+
+In this case, we import Motoko code (not some other module form) with the mo:prefix. We specify the base/ path, followed by the module’s file name Debug.mominus its extension.
+
+Printing using Debug.print and debug\_show：
+
+Above, we print the text string using the function print in library Debug.mo:
+
+```go
+print: Text -> ()
+```
+
+The function print accepts a text string (of type Text) as input, and produces the *unit value* (of *unit type*, or ()) as its output.
+
+Because unit values carry no information, all values of type unit are identical, so the print function doesn’t actually produce an interesting result. Instead of a result, it has a *side effect*. The function print has the effect of emitting the text string in a human-readable form to the output terminal. Functions that have side effects, such as emitting output, or modifying state, are often called *impure*. Functions that just return values, without further side-effects, are called *pure*. We discuss the return value (the unit value) [in detail below](<https://sdk.dfinity.org/docs/language-guide/basic-concepts.html#intro-unit-type>), and relate it to the void type for readers more familiar with that concept.
+
+Finally, we can transform most Motoko values into human-readable text strings for debugging purposes, *without* having to write those transformations by hand.
+
+The debug\_show primitive permits converting a large class of values into values of type Text.
+
+For instance, we can convert a triple (of type (Text, Nat, Text)) into debugging text without writing a custom conversion function ourselves:
+
+```go
+import D "mo:base/Debug"; 
+D.print(debug_show(("hello", 42, "world")))
+```
+
+Using these text transformations, we can print most Motoko data as we experiment with our programs.
+
+### 4\.【Accommodating incomplete code】
+
+Sometimes, in the midst of writing a program, we want to run an incomplete version, or a version where one or more execution paths are either missing or simply invalid.
+
+To accommodate these situations, we use the xxx, nyi and unreachable functions from the base Prelude library, explained below. Each wraps a [general trap mechanism](<https://sdk.dfinity.org/docs/language-guide/basic-concepts.html#overview-traps>), explained further below.
+
+Use short-term holes：
+
+Short-term holes are never committed to a source repository, and only ever exist in a single development session, for a developer that is still writing the program.
+
+Assuming that earlier, one has imported the prelude as follows:
+
+```
+import P "mo:base/Prelude";
+```
+
+The developer can fill *any missing expression* with the following one:
+
+```go
+P.xxx()
+```
+
+The result will *always* type check at compile time, and *will always* trap at run time, if and when this expression ever executes.
+
+Document longer-term holes：
+
+By convention, longer-term holes can be considered "not yet implemented" (nyi) features, and marked as such with a similar function from the Prelude module:
+
+```go
+P.nyi()
+```
+
+Document unreachable code paths：
+
+In contrast to the situations above, sometimes code will *never* be filled, since it will *never* be evaluated, assuming the coherence of the internal logic of the programs' invariants.
+
+To document a code path as logically impossible, or *unreachable*, use the base library function unreachable:
+
+```go
+P.unreachable()
+```
+
+As in the situations above, this function type-checks in all contexts, and when evaluated, traps in all contexts.
+
+Execution traps stop the program：
+
+Each form above is a simple wrapper around the always-fail use of the [assert primitive](<https://sdk.dfinity.org/docs/language-guide/language-manual.html#exp-assert>):
+
+```go
+assert false
+```
+
+Dynamically, we call this program-halting behavior a *program(-generated) trap*, and we say that the program *traps* when it executes this code. It will cease to progress further.
+
+### 5\.【不可变变量与变量的声明】
+
+```go
+let text : Text = "abc"; 
+let num : Nat = 30;
+var pair : (Text, Nat) = (text, num);
+var text2 : Text = text;
+```
+
+在上面这个声明列表中，let关键字用来声明一个在当前作用域中的immutable variables（不可变的变量）；var关键字用来声明一个在当前作用域中的mutable variables（可变变量）。
+
+### 6\.【Annotation——声明类型】
+
+在1.的声明列表中，在变量名后面加个冒号，后面跟一个变量类型关键字，作为一个annotation，用来解释说明（or限定）前面变量的类型。
+
+例：
+
+```go
+func( i : Nat ) : Nat
+```
+
+表示一个没有名字的（提供临时接口的）函数，其形参类行为Nat，返回值类型为Nat。
+
+※一个名为 gen 的具有相同功能的函数还可以表示为：
+
+```go
+gen : Nat -> Nat    //这就是函数gen的type
+```
+
+### 7\.【可变变量的Assignment赋值语句 := 】
+
+```go
+（代码上文语境略）
+text2 := text2 # "xyz";
+pair := (text2, pair.1);
+```
+
+易知，赋值语句写作 :=
+
+/\*In this example, we *update* text2 by appending string constant "xyz"to its suffix.\*/
+
+赋值操作 := 是常规的，适用于所有类型。
+
+类比C/C++语言，Motoko也支持类似于+=、#=的特殊赋值语句。
+
+[赋值操作的完整列表](<https://sdk.dfinity.org/docs/language-guide/language-manual.html#syntax-ops-assignment>)列出了相应类型（数字类型(Nat类型)、布尔类型和文本类型）上的数字、逻辑和文本操作。
+
+### 8\.【常数组Immutable Arrays】
+
+声明（例）：
+
+```go
+let a : [Nat] = [1, 2, 3] ;
+```
+
+元素为Nat类型 的常数组的数据类型为 [Nat]
+
+
+
+The array a above holds three natural numbers, and has type [Nat]. In general, the type of an immutable array is [\_], using square brackets around the type of the array’s elements, which must share a single common type, in this case Nat.
+
+访问：
+
+We can project from (*read from*) an array using the usual bracket syntax ([ and ]) around the index we want to access.
+
+例
+
+```go
+let x : Nat = a[2] + a[0] ;
+```
+
+Every array access in Motoko is safe. Accesses that are out of bounds will not access memory unsafely, but instead will cause the program to trap, as with an [assertion failure](<https://sdk.dfinity.org/docs/language-guide/basic-concepts.html#overview-traps>).
+
+### 9\.【Array标准模版库(module)】
+
+The Motoko standard library provides basic operations for immutable and mutable arrays. It can be imported as follows：
+
+```go
+import Array "mo:base/Array";
+```
+
+实际导入了以下内容：
+
+```go
+{
+	append = func;
+	chain = func;
+	equal = func;
+	filter = func;
+	find = func;
+	flatten = func;
+	foldLeft = func;
+	foldRight = func;
+	freeze = func;
+	init = func;
+	keys = func;
+	make = func;
+	map = func;
+	mapEntries = func;
+	mapFilter = func;
+	mapResult = func;
+	tabulate = func;
+	tabulateVar = func;
+	thaw = func;
+	vals = func
+} :
+	module {
+	append : <A>([A], [A]) -> [A];
+	chain : <A, B>([A], A -> [B]) -> [B];
+	equal : <A>([A], [A], (A, A) -> Bool) -> Bool;
+	filter : <A>([A], A -> Bool) -> [A];
+	find : <A>([A], A -> Bool) -> ?A;
+	flatten : <A>([[A]]) -> [A];
+	foldLeft : <A, B>([A], B, (B, A) -> B) -> B;
+	foldRight : <A, B>([A], B, (A, B) -> B) -> B;
+	freeze : <A>([var A]) -> [A];
+	init : <A>(Nat, A) -> [var A];
+	keys : <A>([A]) -> Iter<Nat>;
+	make : <A>(A) -> [A];
+	map : <A, B>([A], A -> B) -> [B];
+	mapEntries : <A, B>([A], (A, Nat) -> B) -> [B];
+	mapFilter : <A, B>([A], A -> ?B) -> [B];
+	mapResult : <A, R, E>([A], A -> Result<R, E>) -> Result<[R], E>;
+	tabulate : <A>(Nat, Nat -> A) -> [A];
+	tabulateVar : <A>(Nat, Nat -> A) -> [var A];
+	thaw : <A>([A]) -> [var A];
+	vals : <A>([A]) -> Iter<A>
+}
+```
+
+In this section, we discuss some of the most frequently used array operations. For more information about using arrays, see the [Array](<https://sdk.dfinity.org/docs/language-guide/stdlib/array.html>) library descriptions.
+
+### 10\.【Allocate an immutable array with varying content】
+
+In general, each new array allocated by a program will contain a varying number of varying elements. Without mutation, we need a way to specify this family of elements "all at once", in the argument to allocation.
+
+To accommodate this need, the Motoko language provides *the higher-order* array-allocation function Array.tabulate, which allocates a new array by consulting a user-provided "generation function" gen for each element.
+
+```go
+func tabulate<T>(size : Nat, gen : Nat -> T) : [T]
+```
+
+Function gen specifies the array *as a function value* of arrow type Nat → T, where T is the final array element type.
+
+The function gen actually *functions* as the array during its initialization: It receives the index of the array element, and it produces the element (of type T) that should reside at that index in the array. The allocated output array populates itself based on this specification.
+
+For instance, we can first allocate array1 consisting of some initial constants, and then functionally-update *some* of the indices by "changing" them (in a pure, functional way), to produce array2, a second array that does not destroy the first.
+
+```go
+let array1 : [Nat] = [1, 2, 3, 4, 6, 7, 8] ; 
+let array2 : [Nat] = Array.tabulate<Nat>(7, func(i:Nat) : Nat { 
+        if ( i == 2 or i == 5 ) { array1[i] * i }    // change 3rd and 6th entries 
+        else { array1[i] }    // no change to other entries 
+} ) ;
+```
+
+### 11\.【可变数组Mutable Array】
+
+元素为Nat类型的可变数组的数据类型为 [var Nat]
+
+声明：
+
+To indicate allocation of *mutable* arrays (in contrast to the forms above, for immutable ones), the mutable array syntax [var \_] uses the var keyword, in both the expression and type forms:
+
+```go
+let a : [var Nat] = [var 1, 2, 3] ;
+```
+
+As above, the array a above holds three natural numbers, but has type [var Nat].
+
+### 12\.【Allocate a mutable array with dynamic size】
+
+To allocate mutable arrays of non-constant size, use the Array\_init primitive, and supply an initial value:
+
+```go
+func init<T>(size : Nat, x : T) : [var T]
+```
+
+For example:
+
+```go
+var size : Nat = 42 ;
+let x : [var Nat] = Array.init<Nat>(size, 3);
+```
+
+The variable size need not be constant here; the array will have size number of entries, each holding the initial value 3.
+
+结果：
+
+```go
+[3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3] : [var Nat]
+```
+
+Mutable updates：
+
+可以用赋值语句，如
+
+```go
+a[2] := 42;
+```
+
+对可变数组元素进行修改。
+
+### 13\.【Subtyping does not permit *mutable* to be used as *immutable*】
+
+不能在期望使用 [Nat] 常数组的地方使用 [var Nat] 可变数组。
+
+PS：Motoko forbids uses of mutable arrays across [asynchronous communication](<https://sdk.dfinity.org/docs/language-guide/actors-async.html>), where mutable state is never shared.
